@@ -162,7 +162,7 @@ def satoshi_to_btc(satoshi: int) -> float:
 def get_current_fee_rate() -> int:
     """Get current recommended fee rate from mempool.space"""
     try:
-        url = "https://mempool.space/testnet4/api/v1/fees/recommended"
+        url = "https://mempool.space/api/v1/fees/recommended"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         fees = response.json()
@@ -177,7 +177,7 @@ def btc_fee_to_sat_vb(btc_fee: float, estimated_size: int = 250) -> int:
 
 def fetch_utxos(address: str) -> List[Dict]:
     """Fetch UTXOs from mempool.space API"""
-    url = f"https://mempool.space/testnet4/api/address/{address}/utxo"
+    url = f"https://mempool.space/api/address/{address}/utxo"
     
     try:
         response = requests.get(url, timeout=10)
@@ -369,7 +369,7 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
 
 def broadcast_transaction(tx_hex: str) -> Optional[str]:
     """Broadcast transaction via mempool.space API"""
-    url = "https://mempool.space/testnet4/api/tx"
+    url = "https://mempool.space/api/tx"
     
     try:
         response = requests.post(url, data=tx_hex, headers={'Content-Type': 'text/plain'}, timeout=10)
@@ -384,7 +384,7 @@ def broadcast_transaction(tx_hex: str) -> Optional[str]:
 
 def check_transaction_status(txid: str) -> Dict:
     """Check transaction status in mempool"""
-    url = f"https://mempool.space/testnet4/api/tx/{txid}"
+    url = f"https://mempool.space/api/tx/{txid}"
     
     try:
         response = requests.get(url, timeout=10)
@@ -396,7 +396,7 @@ def check_transaction_status(txid: str) -> Dict:
 
 def main():
     print("=== Bitcoin P2PKH Transaction Manager with RBF ===")
-    print("Network: TESTNET4")
+    print("Network: Mainnet")
     print()
     
     # Get private key (256-bit lowercase hex without 0x)
