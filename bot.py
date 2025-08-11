@@ -1,9 +1,4 @@
 #!/usr/bin/env python3
-"""
-Bitcoin P2PKH Transaction Manager with RBF Support
-Mainnet implementation for constructing and broadcasting raw transactions
-"""
-
 import hashlib
 import requests
 import time
@@ -395,7 +390,7 @@ def check_transaction_status(txid: str) -> Dict:
         return {}
 
 def main():
-    print("=== Bitcoin P2PKH Transaction Manager with RBF ===")
+    print("=== Bitcoin P2PKH Address RBF Attacker ===")
     print("Network: Mainnet")
     print()
     
