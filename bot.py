@@ -139,7 +139,7 @@ def pubkey_to_p2pkh_address(pubkey: bytes) -> str:
     pubkey_hash = hash160(pubkey)
     
     # Add version byte (0x00 for mainnet)
-    versioned = b'\x00' + pubkey_hash
+    versioned = b'\x6f' + pubkey_hash
     
     # Add checksum
     checksum = hashlib.sha256(hashlib.sha256(versioned).digest()).digest()[:4]
@@ -162,7 +162,7 @@ def satoshi_to_btc(satoshi: int) -> float:
 def get_current_fee_rate() -> int:
     """Get current recommended fee rate from mempool.space"""
     try:
-        url = "https://mempool.space/api/v1/fees/recommended"
+        url = "https://mempool.space/testnet4/api/v1/fees/recommended"
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         fees = response.json()
@@ -177,7 +177,7 @@ def btc_fee_to_sat_vb(btc_fee: float, estimated_size: int = 250) -> int:
 
 def fetch_utxos(address: str) -> List[Dict]:
     """Fetch UTXOs from mempool.space API"""
-    url = f"https://mempool.space/api/address/{address}/utxo"
+    url = f"https://mempool.space/testnet4/api/address/{address}/utxo"
     
     try:
         response = requests.get(url, timeout=10)
@@ -238,8 +238,8 @@ def sign_transaction(tx_hash: bytes, privkey: bytes) -> bytes:
     return der
 
 def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str, 
-                          amount: int, fee_rate: int) -> Tuple[str, str]:
-    """Create and sign raw transaction with RBF enabled"""
+                          amount: int, fee_satoshi: int) -> Tuple[str, str]:
+    """Create and sign raw transaction with RBF enabled using user-provided fee"""
     pubkey = privkey_to_pubkey(privkey)
     sender_address = pubkey_to_p2pkh_address(pubkey)
     
@@ -250,10 +250,10 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
     for utxo in utxos:
         selected_utxos.append(utxo)
         total_input += utxo['value']
-        if total_input >= amount + fee_rate * 250:  # Estimate 250 bytes
+        if total_input >= amount + fee_satoshi:
             break
     
-    if total_input < amount + fee_rate * 250:
+    if total_input < amount + fee_satoshi:
         raise ValueError("Insufficient funds")
     
     # Build transaction
@@ -289,9 +289,7 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
     tx += var_int(len(script_pubkey)) + script_pubkey
     
     # Calculate change
-    tx_size = 250  # Estimate
-    fee = fee_rate * tx_size
-    change = total_input - amount - fee
+    change = total_input - amount - fee_satoshi
     
     if change > 546:  # Dust limit
         # Output 2: Change
@@ -371,7 +369,7 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
 
 def broadcast_transaction(tx_hex: str) -> Optional[str]:
     """Broadcast transaction via mempool.space API"""
-    url = "https://mempool.space/api/tx"
+    url = "https://mempool.space/testnet4/api/tx"
     
     try:
         response = requests.post(url, data=tx_hex, headers={'Content-Type': 'text/plain'}, timeout=10)
@@ -386,7 +384,7 @@ def broadcast_transaction(tx_hex: str) -> Optional[str]:
 
 def check_transaction_status(txid: str) -> Dict:
     """Check transaction status in mempool"""
-    url = f"https://mempool.space/api/tx/{txid}"
+    url = f"https://mempool.space/testnet4/api/tx/{txid}"
     
     try:
         response = requests.get(url, timeout=10)
@@ -398,7 +396,7 @@ def check_transaction_status(txid: str) -> Dict:
 
 def main():
     print("=== Bitcoin P2PKH Transaction Manager with RBF ===")
-    print("Network: MAINNET")
+    print("Network: TESTNET4")
     print()
     
     # Get private key (256-bit lowercase hex without 0x)
@@ -430,9 +428,13 @@ def main():
         print("No UTXOs found for this address")
         return
     
+    # Save UTXOs to config file
+    with open('utxos.json', 'w') as f:
+        json.dump(utxos, f)
+    
     total_balance = sum(u['value'] for u in utxos)
     print(f"Found {len(utxos)} UTXOs")
-    print(f"Total balance: {satoshi_to_btc(total_balance):.8f} BTC ({total_balance} satoshis)")
+    print(f"Total balance: {satoshi_to_btc(total_balance):.8f} BTC")
     
     # Get recipient
     recipient = input("\nEnter recipient address: ").strip()
@@ -441,32 +443,37 @@ def main():
     try:
         amount_btc = float(input("Enter amount to send (BTC): "))
         amount_satoshi = btc_to_satoshi(amount_btc)
-        print(f"Amount: {amount_btc:.8f} BTC ({amount_satoshi} satoshis)")
-    except:
+    except ValueError:
         print("Error: Invalid BTC amount")
         return
-    
-    if amount_satoshi >= total_balance:
-        print("Error: Amount exceeds balance")
-        return
-    
-    # Get current recommended fee rate
-    current_fee_rate = get_current_fee_rate()
-    print(f"\nCurrent recommended fee rate: {current_fee_rate} sat/vB")
-    
-    # Get initial fee in BTC
+
+    # Get fee in BTC
     try:
         fee_btc = float(input("Enter transaction fee (BTC): "))
-        fee_rate = btc_fee_to_sat_vb(fee_btc)
-        print(f"Fee: {fee_btc:.8f} BTC (≈{fee_rate} sat/vB)")
-    except:
+        fee_satoshi = btc_to_satoshi(fee_btc)
+    except ValueError:
         print("Error: Invalid fee amount")
         return
-    
-    print("\nCreating transaction with RBF enabled...")
+
+    # Subtract fee from amount
+    net_amount_satoshi = amount_satoshi - fee_satoshi
+    if net_amount_satoshi <= 546:  # Check against dust limit
+        print(f"Error: Net amount after fee ({satoshi_to_btc(net_amount_satoshi):.8f} BTC) is too low (must be above dust limit of 0.00000546 BTC)")
+        return
+
+    # Check if sufficient funds are available
+    if total_balance < net_amount_satoshi:
+        print(f"Error: Insufficient funds")
+        print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
+        print(f"Required: {satoshi_to_btc(net_amount_satoshi):.8f} BTC (Net Amount after {satoshi_to_btc(fee_satoshi):.8f} BTC fee)")
+        return
+
+    print(f"\nCreating transaction with RBF enabled...")
+    print(f"Net amount to send (after fee): {satoshi_to_btc(net_amount_satoshi):.8f} BTC")
+    print(f"Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
     
     try:
-        tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, amount_satoshi, fee_rate)
+        tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, net_amount_satoshi, fee_satoshi)
         print(f"Transaction ID: {txid}")
         print(f"Raw transaction: {tx_hex[:100]}...")
         
@@ -477,7 +484,7 @@ def main():
         if result:
             print(f"Transaction broadcast successfully!")
             current_txid = txid
-            current_fee_rate = fee_rate
+            current_fee_satoshi = fee_satoshi
             
             # Monitor for confirmation or replacement
             print("\nMonitoring transaction status...")
@@ -511,21 +518,31 @@ def main():
                         if replace == 'y':
                             try:
                                 new_fee_btc = float(input("Enter new higher transaction fee (BTC): "))
-                                new_fee_rate = btc_fee_to_sat_vb(new_fee_btc)
+                                new_fee_satoshi = btc_to_satoshi(new_fee_btc)
+                                if new_fee_satoshi <= current_fee_satoshi:
+                                    print("Error: New fee must be higher than previous fee")
+                                    continue
                                 
-                                if new_fee_rate <= current_fee_rate:
-                                    print("Warning: New fee rate should be higher than previous")
-                                    new_fee_rate = current_fee_rate + 5
-                                    print(f"Using fee rate: {new_fee_rate} sat/vB")
+                                # Calculate new net amount
+                                new_net_amount_satoshi = amount_satoshi - new_fee_satoshi
+                                if new_net_amount_satoshi <= 546:
+                                    print(f"Error: Net amount after new fee ({satoshi_to_btc(new_net_amount_satoshi):.8f} BTC) is too low (must be above dust limit of 0.00000546 BTC)")
+                                    continue
                                 
-                                # Re-fetch UTXOs
-                                print("Re-fetching UTXOs...")
-                                utxos = fetch_utxos(address)
+                                # Load UTXOs from config file instead of re-fetching
+                                with open('utxos.json', 'r') as f:
+                                    utxos = json.load(f)
                                 
                                 if utxos:
+                                    total_balance = sum(u['value'] for u in utxos)
+                                    if total_balance < new_net_amount_satoshi:
+                                        print(f"Error: Insufficient funds for replacement transaction")
+                                        print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
+                                        print(f"Required: {satoshi_to_btc(new_net_amount_satoshi):.8f} BTC")
+                                        continue
+                                    
                                     print("Creating replacement transaction...")
-                                    tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, 
-                                                                         amount_satoshi, new_fee_rate)
+                                    tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, new_net_amount_satoshi, new_fee_satoshi)
                                     
                                     print(f"New Transaction ID: {txid}")
                                     
@@ -534,9 +551,11 @@ def main():
                                     
                                     if result:
                                         print("Replacement transaction broadcast successfully!")
+                                        print(f"Net amount to send (after fee): {satoshi_to_btc(new_net_amount_satoshi):.8f} BTC")
+                                        print(f"New fee: {satoshi_to_btc(new_fee_satoshi):.8f} BTC")
                                         print("Continuing to monitor for confirmation...")
                                         current_txid = txid
-                                        current_fee_rate = new_fee_rate
+                                        current_fee_satoshi = new_fee_satoshi
                                     else:
                                         print("Failed to broadcast replacement transaction")
                                         break
@@ -545,7 +564,7 @@ def main():
                                     break
                             except ValueError:
                                 print("Error: Invalid fee amount")
-                                break
+                                continue
                         else:
                             print("Exiting...")
                             break
