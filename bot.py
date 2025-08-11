@@ -1,8 +1,8 @@
-#!/usr/bin/env python3
 import hashlib
 import requests
 import time
 import json
+import os
 from typing import Dict, List, Tuple, Optional
 import struct
 
@@ -415,17 +415,39 @@ def main():
     address = pubkey_to_p2pkh_address(pubkey)
     print(f"\nYour P2PKH address: {address}")
     
-    # Fetch UTXOs
-    print("\nFetching UTXOs...")
-    utxos = fetch_utxos(address)
+    # Prompt user for UTXO source
+    print("\nChoose UTXO source:")
+    print("1. Fetch from mempool.space API")
+    print("2. Load from utxos.json file")
+    choice = input("Enter 1 or 2: ").strip()
     
-    if not utxos:
-        print("No UTXOs found for this address")
+    utxos = []
+    if choice == '1':
+        print("\nFetching UTXOs from mempool.space API...")
+        utxos = fetch_utxos(address)
+        if utxos:
+            # Save fetched UTXOs to file
+            with open('utxos.json', 'w') as f:
+                json.dump(utxos, f, indent=2)
+    elif choice == '2':
+        if os.path.exists('utxos.json'):
+            print("\nLoading UTXOs from utxos.json...")
+            try:
+                with open('utxos.json', 'r') as f:
+                    utxos = json.load(f)
+            except Exception as e:
+                print(f"Error loading UTXOs from file: {e}")
+                return
+        else:
+            print("Error: utxos.json file not found")
+            return
+    else:
+        print("Error: Invalid choice. Please enter 1 or 2")
         return
     
-    # Save UTXOs to config file
-    with open('utxos.json', 'w') as f:
-        json.dump(utxos, f)
+    if not utxos:
+        print("No UTXOs found")
+        return
     
     total_balance = sum(u['value'] for u in utxos)
     print(f"Found {len(utxos)} UTXOs")
@@ -470,8 +492,7 @@ def main():
     try:
         tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, net_amount_satoshi, fee_satoshi)
         print(f"Transaction ID: {txid}")
-        print(f"Raw transaction: {tx_hex[:100]}...")
-        
+         
         # Broadcast initial transaction
         print("\nBroadcasting transaction...")
         result = broadcast_transaction(tx_hex)
@@ -524,9 +545,34 @@ def main():
                                     print(f"Error: Net amount after new fee ({satoshi_to_btc(new_net_amount_satoshi):.8f} BTC) is too low (must be above dust limit of 0.00000546 BTC)")
                                     continue
                                 
-                                # Load UTXOs from config file instead of re-fetching
-                                with open('utxos.json', 'r') as f:
-                                    utxos = json.load(f)
+                                # Prompt user for UTXO source again for replacement transaction
+                                print("\nChoose UTXO source for replacement transaction:")
+                                print("1. Fetch from mempool.space API")
+                                print("2. Load from utxos.json file")
+                                choice = input("Enter 1 or 2: ").strip()
+                                
+                                utxos = []
+                                if choice == '1':
+                                    print("\nFetching UTXOs from mempool.space API...")
+                                    utxos = fetch_utxos(address)
+                                    if utxos:
+                                        with open('utxos.json', 'w') as f:
+                                            json.dump(utxos, f, indent=2)
+                                elif choice == '2':
+                                    if os.path.exists('utxos.json'):
+                                        print("\nLoading UTXOs from utxos.json...")
+                                        try:
+                                            with open('utxos.json', 'r') as f:
+                                                utxos = json.load(f)
+                                        except Exception as e:
+                                            print(f"Error loading UTXOs from file: {e}")
+                                            continue
+                                    else:
+                                        print("Error: utxos.json file not found")
+                                        continue
+                                else:
+                                    print("Error: Invalid choice. Please enter 1 or 2")
+                                    continue
                                 
                                 if utxos:
                                     total_balance = sum(u['value'] for u in utxos)
