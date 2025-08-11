@@ -134,7 +134,7 @@ def pubkey_to_p2pkh_address(pubkey: bytes) -> str:
     pubkey_hash = hash160(pubkey)
     
     # Add version byte (0x00 for mainnet)
-    versioned = b'\x6f' + pubkey_hash
+    versioned = b'\x00' + pubkey_hash
     
     # Add checksum
     checksum = hashlib.sha256(hashlib.sha256(versioned).digest()).digest()[:4]
@@ -415,7 +415,7 @@ def main():
     address = pubkey_to_p2pkh_address(pubkey)
     print(f"\nYour P2PKH address: {address}")
     
-    # Prompt user for UTXO source
+    # Prompt user for initial UTXO source
     print("\nChoose UTXO source:")
     print("1. Fetch from mempool.space API")
     print("2. Load from utxos.json file")
@@ -454,7 +454,7 @@ def main():
     print(f"Total balance: {satoshi_to_btc(total_balance):.8f} BTC")
     
     # Get recipient
-    recipient = input("\nEnter recipient address: ").strip()
+    recipient = input("\nEnter Recipient P2PKH Address: ").strip()
     
     # Get amount in BTC
     try:
@@ -492,7 +492,7 @@ def main():
     try:
         tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, net_amount_satoshi, fee_satoshi)
         print(f"Transaction ID: {txid}")
-         
+        
         # Broadcast initial transaction
         print("\nBroadcasting transaction...")
         result = broadcast_transaction(tx_hex)
@@ -517,7 +517,7 @@ def main():
                     if status.get('status', {}).get('confirmed', False):
                         confirmations = status.get('status', {}).get('block_height', 0)
                         if confirmations > 0:  # At least 1 confirmation
-                            print(f"\n🎉 Congrats Our Transaction Confirmed! 🎉")
+                            print(f"\nTransaction Confirmed!")
                             print(f"Transaction ID: {current_txid}")
                             print(f"Block height: {status['status'].get('block_height')}")
                             print(f"Confirmations: 1+ (waiting for 1 confirmation only)")
@@ -525,90 +525,67 @@ def main():
                     
                     elif not status:
                         # Transaction might have been replaced or dropped
-                        print(f"\n⚠️  Transaction {current_txid[:16]}... not found in mempool")
-                        print("It may have been replaced by another transaction with higher fees")
-                        
-                        # Ask user if they want to create replacement transaction
-                        replace = input("\nDo you want to create a replacement transaction with higher fees? (y/n): ").strip().lower()
-                        
-                        if replace == 'y':
-                            try:
-                                new_fee_btc = float(input("Enter new higher transaction fee (BTC): "))
-                                new_fee_satoshi = btc_to_satoshi(new_fee_btc)
-                                if new_fee_satoshi <= current_fee_satoshi:
-                                    print("Error: New fee must be higher than previous fee")
-                                    continue
-                                
-                                # Calculate new net amount
-                                new_net_amount_satoshi = amount_satoshi - new_fee_satoshi
-                                if new_net_amount_satoshi <= 546:
-                                    print(f"Error: Net amount after new fee ({satoshi_to_btc(new_net_amount_satoshi):.8f} BTC) is too low (must be above dust limit of 0.00000546 BTC)")
-                                    continue
-                                
-                                # Prompt user for UTXO source again for replacement transaction
-                                print("\nChoose UTXO source for replacement transaction:")
-                                print("1. Fetch from mempool.space API")
-                                print("2. Load from utxos.json file")
-                                choice = input("Enter 1 or 2: ").strip()
-                                
-                                utxos = []
-                                if choice == '1':
-                                    print("\nFetching UTXOs from mempool.space API...")
-                                    utxos = fetch_utxos(address)
-                                    if utxos:
-                                        with open('utxos.json', 'w') as f:
-                                            json.dump(utxos, f, indent=2)
-                                elif choice == '2':
-                                    if os.path.exists('utxos.json'):
-                                        print("\nLoading UTXOs from utxos.json...")
-                                        try:
-                                            with open('utxos.json', 'r') as f:
-                                                utxos = json.load(f)
-                                        except Exception as e:
-                                            print(f"Error loading UTXOs from file: {e}")
-                                            continue
-                                    else:
-                                        print("Error: utxos.json file not found")
-                                        continue
-                                else:
-                                    print("Error: Invalid choice. Please enter 1 or 2")
-                                    continue
-                                
-                                if utxos:
-                                    total_balance = sum(u['value'] for u in utxos)
-                                    if total_balance < new_net_amount_satoshi:
-                                        print(f"Error: Insufficient funds for replacement transaction")
-                                        print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
-                                        print(f"Required: {satoshi_to_btc(new_net_amount_satoshi):.8f} BTC")
-                                        continue
-                                    
-                                    print("Creating replacement transaction...")
-                                    tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, new_net_amount_satoshi, new_fee_satoshi)
-                                    
-                                    print(f"New Transaction ID: {txid}")
-                                    
-                                    # Broadcast replacement
-                                    result = broadcast_transaction(tx_hex)
-                                    
-                                    if result:
-                                        print("Replacement transaction broadcast successfully!")
-                                        print(f"Net amount to send (after fee): {satoshi_to_btc(new_net_amount_satoshi):.8f} BTC")
-                                        print(f"New fee: {satoshi_to_btc(new_fee_satoshi):.8f} BTC")
-                                        print("Continuing to monitor for confirmation...")
-                                        current_txid = txid
-                                        current_fee_satoshi = new_fee_satoshi
-                                    else:
-                                        print("Failed to broadcast replacement transaction")
-                                        break
-                                else:
-                                    print("No UTXOs available for replacement")
-                                    break
-                            except ValueError:
-                                print("Error: Invalid fee amount")
+                        print(f"\n⚠️TRANSACTION REPLACED!")
+                         
+                        # Directly prompt for new fee
+                        try:
+                            new_fee_btc = float(input("Enter new higher transaction fee (BTC): "))
+                            new_fee_satoshi = btc_to_satoshi(new_fee_btc)
+                            if new_fee_satoshi <= current_fee_satoshi:
+                                print("Error: New fee must be higher than previous fee")
                                 continue
-                        else:
-                            print("Exiting...")
-                            break
+                            
+                            # Calculate new net amount
+                            new_net_amount_satoshi = amount_satoshi - new_fee_satoshi
+                            if new_net_amount_satoshi <= 546:
+                                print(f"Error: Net amount after new fee ({satoshi_to_btc(new_net_amount_satoshi):.8f} BTC) is too low (must be above dust limit of 0.00000546 BTC)")
+                                continue
+                            
+                            # Load UTXOs from utxos.json for replacement transaction
+                            if os.path.exists('utxos.json'):
+                                print("\nLoading UTXOs from utxos.json...")
+                                try:
+                                    with open('utxos.json', 'r') as f:
+                                        utxos = json.load(f)
+                                except Exception as e:
+                                    print(f"Error loading UTXOs from file: {e}")
+                                    continue
+                            else:
+                                print("Error: utxos.json file not found")
+                                continue
+                            
+                            if utxos:
+                                total_balance = sum(u['value'] for u in utxos)
+                                if total_balance < new_net_amount_satoshi:
+                                    print(f"Error: Insufficient funds for replacement transaction")
+                                    print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
+                                    print(f"Required: {satoshi_to_btc(new_net_amount_satoshi):.8f} BTC")
+                                    continue
+                                
+                                print("Creating replacement transaction...")
+                                tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, new_net_amount_satoshi, new_fee_satoshi)
+                                
+                                print(f"New Transaction ID: {txid}")
+                                
+                                # Broadcast replacement
+                                result = broadcast_transaction(tx_hex)
+                                
+                                if result:
+                                    print("Replacement transaction broadcast successfully!")
+                                    print(f"Net amount to send (after fee): {satoshi_to_btc(new_net_amount_satoshi):.8f} BTC")
+                                    print(f"New fee: {satoshi_to_btc(new_fee_satoshi):.8f} BTC")
+                                    print("Continuing to monitor for confirmation...")
+                                    current_txid = txid
+                                    current_fee_satoshi = new_fee_satoshi
+                                else:
+                                    print("Failed to broadcast replacement transaction")
+                                    break
+                            else:
+                                print("No UTXOs available for replacement")
+                                break
+                        except ValueError:
+                            print("Error: Invalid fee amount")
+                            continue
                     
                     else:
                         # Transaction is still in mempool
