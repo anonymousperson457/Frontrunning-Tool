@@ -1,11 +1,10 @@
-#!/usr/bin/env python3
 import requests
 import json
 from typing import List, Dict
 
 def fetch_utxos(address: str) -> List[Dict]:
     """Fetch UTXOs from mempool.space API for a given address"""
-    url = f"https://mempool.space/testnet4/api/address/{address}/utxo"
+    url = f"https://mempool.space/api/address/{address}/utxo"
     
     try:
         response = requests.get(url, timeout=10)
