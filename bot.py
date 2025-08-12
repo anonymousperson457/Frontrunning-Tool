@@ -503,8 +503,7 @@ def main():
                         if confirmations > 0:  # At least 1 confirmation
                             print(f"\nTransaction Confirmed!")
                             print(f"Transaction ID: {current_txid}")
-                            print(f"Block height: {status['status'].get('block_height')}")
-                            print(f"Confirmations: 1+ (waiting for 1 confirmation only)")
+                            print(f"Confirmations: 1+")
                             break
                     
                     elif not status:
