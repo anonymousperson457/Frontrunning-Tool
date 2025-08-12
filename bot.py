@@ -576,7 +576,7 @@ def main():
                         print(".", end="", flush=True)
                 
                 except KeyboardInterrupt:
-                    print(f"\n\nMonitoring stopped. Current transaction ID: {current_txid}")
+                    print(f"\n\nMonitoring Stopped.")
                     break
                 except Exception as e:
                     print(f"\nError checking transaction status: {e}")
