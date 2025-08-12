@@ -154,22 +154,6 @@ def satoshi_to_btc(satoshi: int) -> float:
     """Convert satoshis to BTC"""
     return satoshi / 100_000_000
 
-def get_current_fee_rate() -> int:
-    """Get current recommended fee rate from mempool.space"""
-    try:
-        url = "https://mempool.space/api/v1/fees/recommended"
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        fees = response.json()
-        return fees.get('fastestFee', 10)  # Default to 10 sat/vB if API fails
-    except:
-        return 10  # Default fallback
-
-def btc_fee_to_sat_vb(btc_fee: float, estimated_size: int = 250) -> int:
-    """Convert BTC fee to sat/vB rate"""
-    satoshi_fee = btc_to_satoshi(btc_fee)
-    return max(1, satoshi_fee // estimated_size)
-
 def fetch_utxos(address: str) -> List[Dict]:
     """Fetch UTXOs from mempool.space API"""
     url = f"https://mempool.space/api/address/{address}/utxo"
@@ -234,7 +218,7 @@ def sign_transaction(tx_hash: bytes, privkey: bytes) -> bytes:
 
 def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str, 
                           amount: int, fee_satoshi: int) -> Tuple[str, str]:
-    """Create and sign raw transaction with RBF enabled using user-provided fee"""
+    """Create and sign raw transaction with user-provided fee"""
     pubkey = privkey_to_pubkey(privkey)
     sender_address = pubkey_to_p2pkh_address(pubkey)
     
@@ -271,8 +255,8 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
         # Script length (will be replaced during signing)
         tx += b'\x00'
         
-        # Sequence (RBF enabled: 0xfffffffd)
-        tx += struct.pack('<I', 0xfffffffd)
+        # Sequence (default: 0xffffffff)
+        tx += struct.pack('<I', 0xffffffff)
     
     # Output count
     tx += var_int(2)  # Recipient + change
@@ -318,7 +302,7 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
             else:
                 sighash_preimage += b'\x00'
             
-            sighash_preimage += struct.pack('<I', 0xfffffffd)
+            sighash_preimage += struct.pack('<I', 0xffffffff)
         
         # Add outputs
         sighash_preimage += var_int(2 if change > 546 else 1)
@@ -344,7 +328,7 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
         signed_tx += bytes.fromhex(utxo['txid'])[::-1]
         signed_tx += struct.pack('<I', utxo['vout'])
         signed_tx += var_int(len(script_sig)) + script_sig
-        signed_tx += struct.pack('<I', 0xfffffffd)
+        signed_tx += struct.pack('<I', 0xffffffff)
     
     # Add outputs and locktime
     signed_tx += var_int(2 if change > 546 else 1)
@@ -390,7 +374,7 @@ def check_transaction_status(txid: str) -> Dict:
         return {}
 
 def main():
-    print("=== Bitcoin P2PKH Address RBF Attacker ===")
+    print("=== Bitcoin P2PKH Address Transaction ===")
     print("Network: Mainnet")
     print()
     
@@ -485,7 +469,7 @@ def main():
         print(f"Required: {satoshi_to_btc(net_amount_satoshi):.8f} BTC (Net Amount after {satoshi_to_btc(fee_satoshi):.8f} BTC fee)")
         return
 
-    print(f"\nCreating transaction with RBF enabled...")
+    print(f"\nCreating transaction...")
     print(f"Net amount to send (after fee): {satoshi_to_btc(net_amount_satoshi):.8f} BTC")
     print(f"Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
     
