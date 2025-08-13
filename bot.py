@@ -151,7 +151,7 @@ def address_to_pubkey_hash(address: str) -> bytes:
 
 def btc_to_satoshi(btc: float) -> int:
     """Convert BTC to satoshis"""
-    return int(btc * 100_000_000)
+    return int(round(btc * 100_000_000))
 
 def satoshi_to_btc(satoshi: int) -> float:
     """Convert satoshis to BTC"""
@@ -652,8 +652,7 @@ def main():
                                 
                                 if utxos:
                                     total_balance = sum(u['value'] for u in utxos)
-                                    new_amount_satoshi = total_balance - new_fee_satoshi
-                                    if total_balance < new_amount_satoshi:
+                                    if total_balance < amount_satoshi + new_fee_satoshi:
                                         print(f"Error: Insufficient funds for replacement transaction")
                                         print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
                                         print(f"Required: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
