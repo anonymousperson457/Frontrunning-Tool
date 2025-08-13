@@ -583,18 +583,13 @@ def main():
         return
     
     
-    # Handle dust limit and funds check with automatic adjustment
-    if total_balance < fee_satoshi:
-        print(f"Error: Insufficient Balance To Cover The Tx Fee")
-        print(f"Available Balance: {satoshi_to_btc(total_balance):.8f} BTC")
-        print(f"Required Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
-        return
+     # Handle dust limit internally
     if amount_satoshi < 546 or total_balance < amount_satoshi + fee_satoshi:
-        amount_satoshi = max(546, total_balance - fee_satoshi)
+        amount_satoshi = total_balance - fee_satoshi
     
     if amount_satoshi <= 0:
-        print(f"Error: Insufficient Funds")
-        print(f"Available Balance: {satoshi_to_btc(total_balance):.8f} BTC")
+        print(f"Error: Insufficient funds")
+        print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
         print(f"Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
         return
     
@@ -658,16 +653,17 @@ def main():
                                 
                                 if utxos:
                                     total_balance = sum(u['value'] for u in utxos)
-                                    if total_balance < amount_satoshi + new_fee_satoshi:
-                                        print(f"Error: Insufficient Funds For Replacement Transaction")
-                                        print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
-                                        print(f"Required: {satoshi_to_btc(amount_satoshi):.8f} BTC")
+                                    new_amount_satoshi = total_balance - new_fee_satoshi
+                                    if total_balance < new_amount_satoshi:
+                                        print(f"Error: Insufficient Funds For Replacement Tx")
+                                        print(f"Available Balance: {satoshi_to_btc(total_balance):.8f} BTC")
+                                        print(f"Required: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
                                         continue
                                 
                                 print("Creating Replacement Tx...")
                                 continue
                                 
-                                tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, amount_satoshi, new_fee_satoshi)
+                                tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, new_amount_satoshi, new_fee_satoshi)
                                 
                                 print(f"New TXID: {txid}")
                                 
@@ -675,7 +671,7 @@ def main():
                                 
                                 if result:
                                     print("Replacement Transaction Broadcast Successfully!")
-                                    print(f"Amount To Send: {satoshi_to_btc(amount_satoshi):.8f} BTC")
+                                    print(f"Amount To Send: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
                                     print(f"New Fee: {satoshi_to_btc(new_fee_satoshi):.8f} BTC")
                                     print("Continuing To Monitor For Confirmation...")
                                     current_txid = txid
