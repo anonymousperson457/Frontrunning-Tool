@@ -582,9 +582,15 @@ def main():
         print("Error: Invalid Amount Or Fee")
         return
     
-    # Handle dust limit internally
+    
+    # Handle dust limit and funds check with automatic adjustment
+    if total_balance < fee_satoshi:
+        print(f"Error: Insufficient Balance To Cover The Tx Fee")
+        print(f"Available Balance: {satoshi_to_btc(total_balance):.8f} BTC")
+        print(f"Required Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
+        return
     if amount_satoshi < 546 or total_balance < amount_satoshi + fee_satoshi:
-        amount_satoshi = total_balance - fee_satoshi
+        amount_satoshi = max(546, total_balance - fee_satoshi)
     
     if amount_satoshi <= 0:
         print(f"Error: Insufficient Funds")
