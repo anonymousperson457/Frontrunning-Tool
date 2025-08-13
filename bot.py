@@ -620,7 +620,7 @@ def main():
                         print(f"\nTx Confirmed!")
                         print(f"Block Height: {status.get('status', {}).get('block_height', 'Unknown')}")
                         print(f"Confirmations: {confirmations}")
-                        print(f"TXID: {current_txid}")v 
+                        print(f"TXID: {current_txid}") 
                         break
                     
                     elif is_dropped:
