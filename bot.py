@@ -39,7 +39,6 @@ def point_add(p1: Tuple[int, int], p2: Tuple[int, int]) -> Tuple[int, int]:
     
     if x1 == x2:
         if y1 == y2:
-            # Point doubling
             s = (3 * x1 * x1 * modinv(2 * y1, P)) % P
         else:
             return None
@@ -72,7 +71,6 @@ def privkey_to_pubkey(privkey: bytes) -> bytes:
     privkey_int = int.from_bytes(privkey, 'big')
     pubkey_point = point_multiply(privkey_int, G)
     
-    # Compressed public key
     x = pubkey_point[0].to_bytes(32, 'big')
     if pubkey_point[1] % 2 == 0:
         return b'\x02' + x
@@ -96,7 +94,6 @@ def base58_encode(data: bytes) -> str:
         num, remainder = divmod(num, 58)
         result.append(alphabet[remainder])
     
-    # Add leading 1s for leading zeros
     for byte in data:
         if byte == 0:
             result.append('1')
@@ -113,14 +110,12 @@ def base58_decode(s: str) -> bytes:
     for char in s:
         num = num * 58 + alphabet.index(char)
     
-    # Convert to bytes
     hex_str = hex(num)[2:]
     if len(hex_str) % 2:
         hex_str = '0' + hex_str
     
     result = bytes.fromhex(hex_str)
     
-    # Add leading zeros
     for char in s:
         if char == '1':
             result = b'\x00' + result
@@ -130,21 +125,29 @@ def base58_decode(s: str) -> bytes:
     return result
 
 def pubkey_to_p2pkh_address(pubkey: bytes) -> str:
-    """Convert public key to P2PKH address"""
+    """Convert public key to P2PKH address for Mainnet"""
     pubkey_hash = hash160(pubkey)
     
-    # Add version byte (0x00 for mainnet)
     versioned = b'\x00' + pubkey_hash
-    
-    # Add checksum
     checksum = hashlib.sha256(hashlib.sha256(versioned).digest()).digest()[:4]
     
     return base58_encode(versioned + checksum)
 
 def address_to_pubkey_hash(address: str) -> bytes:
-    """Extract pubkey hash from P2PKH address"""
-    decoded = base58_decode(address)
-    return decoded[1:-4]  # Remove version byte and checksum
+    """Extract pubkey hash from P2PKH or P2WPKH address"""
+    if address.startswith('bc1'):
+        decoded = decode_bech32(address)
+        if decoded and decoded['hrp'] == 'bc' and decoded['version'] == 0 and len(decoded['program']) == 20:
+            return bytes(decoded['program'])
+        raise ValueError(f"Invalid P2WPKH address: {address}")
+    else:
+        try:
+            decoded = base58_decode(address)
+            if len(decoded) != 25 or decoded[0] != 0x00:
+                raise ValueError(f"Invalid P2PKH address: {address}")
+            return decoded[1:-4]
+        except Exception as e:
+            raise ValueError(f"Failed to decode P2PKH address: {str(e)}")
 
 def btc_to_satoshi(btc: float) -> int:
     """Convert BTC to satoshis"""
@@ -154,16 +157,102 @@ def satoshi_to_btc(satoshi: int) -> float:
     """Convert satoshis to BTC"""
     return satoshi / 100_000_000
 
+def decode_bech32(address: str) -> Optional[Dict]:
+    """Decode Bech32 address and return hrp, version, and program"""
+    def bech32_polymod(values: List[int]) -> int:
+        generator = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+        chk = 1
+        for v in values:
+            b = chk >> 25
+            chk = (chk & 0x1ffffff) << 5 ^ v
+            for i in range(5):
+                chk ^= generator[i] if ((b >> i) & 1) else 0
+        return chk
+
+    def bech32_hrp_expand(hrp: str) -> List[int]:
+        return [ord(x) >> 5 for x in hrp] + [0] + [ord(x) & 31 for x in hrp]
+
+    def convertbits(data: List[int], frombits: int, tobits: int, pad: bool = True) -> Optional[List[int]]:
+        acc = 0
+        bits = 0
+        ret = []
+        maxv = (1 << tobits) - 1
+        max_acc = (1 << (frombits + tobits - 1)) - 1
+        for value in data:
+            if value < 0 or value >= (1 << frombits):
+                return None
+            acc = ((acc << frombits) | value) & max_acc
+            bits += frombits
+            while bits >= tobits:
+                bits -= tobits
+                ret.append((acc >> bits) & maxv)
+        if pad:
+            if bits:
+                ret.append((acc << (tobits - bits)) & maxv)
+        elif bits >= frombits or ((acc << (tobits - bits)) & maxv):
+            return None
+        return ret
+
+    charset = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l'
+
+    try:
+        address = address.strip().lower()
+        if not (14 <= len(address) <= 74):
+            return None
+
+        if not address.startswith('bc1'):
+            return None
+
+        sep_index = address.find('1')
+        if sep_index == -1:
+            return None
+
+        hrp, data = address[:sep_index], address[sep_index+1:]
+        if hrp != 'bc':
+            return None
+
+        try:
+            data_values = [charset.index(c) for c in data]
+        except ValueError:
+            return None
+
+        values = bech32_hrp_expand(hrp) + data_values
+        if bech32_polymod(values) != 1:
+            return None
+
+        version = data_values[0]
+        program_5bit = data_values[1:-6]
+        program_8bit = convertbits(program_5bit, 5, 8, False)
+        if program_8bit is None:
+            return None
+
+        return {'hrp': hrp, 'version': version, 'program': program_8bit}
+
+    except Exception:
+        return None
+
+def is_valid_p2wpkh_address(address: str) -> bool:
+    """Check if address is a valid Mainnet P2WPKH address"""
+    try:
+        decoded = decode_bech32(address)
+        if decoded is None:
+            return False
+        valid = (decoded['hrp'] == 'bc' and
+                 decoded['version'] == 0 and
+                 len(decoded['program']) == 20)
+        return valid
+    except Exception:
+        return False
+
 def fetch_utxos(address: str) -> List[Dict]:
-    """Fetch UTXOs from mempool.space API"""
+    """Fetch UTXOs from mempool.space Mainnet API"""
     url = f"https://mempool.space/api/address/{address}/utxo"
     
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         return response.json()
-    except Exception as e:
-        print(f"Error fetching UTXOs: {e}")
+    except Exception:
         return []
 
 def var_int(n: int) -> bytes:
@@ -185,10 +274,8 @@ def sign_transaction(tx_hash: bytes, privkey: bytes) -> bytes:
     """Sign transaction hash with private key (DER format)"""
     privkey_int = int.from_bytes(privkey, 'big')
     
-    # Simple deterministic k generation (for demo - use proper RFC6979 in production)
     k = int.from_bytes(hashlib.sha256(privkey + tx_hash).digest(), 'big') % N
     
-    # Calculate signature
     r_point = point_multiply(k, G)
     r = r_point[0] % N
     
@@ -196,15 +283,12 @@ def sign_transaction(tx_hash: bytes, privkey: bytes) -> bytes:
     z = int.from_bytes(tx_hash, 'big')
     s = (k_inv * (z + r * privkey_int)) % N
     
-    # Ensure low S value
     if s > N // 2:
         s = N - s
     
-    # DER encoding
     r_bytes = r.to_bytes((r.bit_length() + 7) // 8, 'big')
     s_bytes = s.to_bytes((s.bit_length() + 7) // 8, 'big')
     
-    # Add padding if high bit is set
     if r_bytes[0] & 0x80:
         r_bytes = b'\x00' + r_bytes
     if s_bytes[0] & 0x80:
@@ -218,11 +302,10 @@ def sign_transaction(tx_hash: bytes, privkey: bytes) -> bytes:
 
 def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str, 
                           amount: int, fee_satoshi: int) -> Tuple[str, str]:
-    """Create and sign raw transaction with user-provided fee"""
+    """Create and sign raw transaction, return tx_hex and txid"""
     pubkey = privkey_to_pubkey(privkey)
     sender_address = pubkey_to_p2pkh_address(pubkey)
     
-    # Select UTXOs
     selected_utxos = []
     total_input = 0
     
@@ -233,62 +316,47 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
             break
     
     if total_input < amount + fee_satoshi:
+        print(f"Insufficient funds: total_input={total_input}, required={amount + fee_satoshi}")
         raise ValueError("Insufficient funds")
     
-    # Build transaction
+    change = total_input - amount - fee_satoshi
+    if change < 0:
+        print(f"Error: Negative change calculated: {change}")
+        raise ValueError("Negative change calculated")
+    
     tx = b''
-    
-    # Version (4 bytes)
     tx += struct.pack('<I', 2)
-    
-    # Input count
     tx += var_int(len(selected_utxos))
     
-    # Inputs
     for utxo in selected_utxos:
-        # Previous output hash (32 bytes, reversed)
         tx += bytes.fromhex(utxo['txid'])[::-1]
-        
-        # Previous output index (4 bytes)
         tx += struct.pack('<I', utxo['vout'])
-        
-        # Script length (will be replaced during signing)
         tx += b'\x00'
-        
-        # Sequence (default: 0xffffffff)
         tx += struct.pack('<I', 0xffffffff)
     
-    # Output count
-    tx += var_int(2)  # Recipient + change
+    output_count = 2 if change > 546 else 1
+    tx += var_int(output_count)
     
-    # Output 1: Recipient
     tx += struct.pack('<Q', amount)
     recipient_hash = address_to_pubkey_hash(recipient)
-    script_pubkey = b'\x76\xa9\x14' + recipient_hash + b'\x88\xac'
+    script_pubkey = b'\x00\x14' + recipient_hash
     tx += var_int(len(script_pubkey)) + script_pubkey
     
-    # Calculate change
-    change = total_input - amount - fee_satoshi
-    
-    if change > 546:  # Dust limit
-        # Output 2: Change
+    if change > 546:
         tx += struct.pack('<Q', change)
         sender_hash = address_to_pubkey_hash(sender_address)
         change_script = b'\x76\xa9\x14' + sender_hash + b'\x88\xac'
         tx += var_int(len(change_script)) + change_script
     
-    # Locktime
     tx += struct.pack('<I', 0)
     
-    # Sign inputs
     signed_tx = b''
-    signed_tx += struct.pack('<I', 2)  # Version
+    signed_tx += struct.pack('<I', 2)
     signed_tx += var_int(len(selected_utxos))
     
     for i, utxo in enumerate(selected_utxos):
-        # Build signature hash
         sighash_preimage = b''
-        sighash_preimage += struct.pack('<I', 2)  # Version
+        sighash_preimage += struct.pack('<I', 2)
         sighash_preimage += var_int(len(selected_utxos))
         
         for j, u in enumerate(selected_utxos):
@@ -296,7 +364,6 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
             sighash_preimage += struct.pack('<I', u['vout'])
             
             if i == j:
-                # Add scriptPubKey for the input being signed
                 prev_script = b'\x76\xa9\x14' + address_to_pubkey_hash(sender_address) + b'\x88\xac'
                 sighash_preimage += var_int(len(prev_script)) + prev_script
             else:
@@ -304,8 +371,7 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
             
             sighash_preimage += struct.pack('<I', 0xffffffff)
         
-        # Add outputs
-        sighash_preimage += var_int(2 if change > 546 else 1)
+        sighash_preimage += var_int(output_count)
         sighash_preimage += struct.pack('<Q', amount)
         sighash_preimage += var_int(len(script_pubkey)) + script_pubkey
         
@@ -313,25 +379,21 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
             sighash_preimage += struct.pack('<Q', change)
             sighash_preimage += var_int(len(change_script)) + change_script
         
-        sighash_preimage += struct.pack('<I', 0)  # Locktime
-        sighash_preimage += struct.pack('<I', 1)  # SIGHASH_ALL
+        sighash_preimage += struct.pack('<I', 0)
+        sighash_preimage += struct.pack('<I', 1)
         
-        # Sign
         sighash = double_sha256(sighash_preimage)
-        signature = sign_transaction(sighash, privkey) + b'\x01'  # SIGHASH_ALL
+        signature = sign_transaction(sighash, privkey) + b'\x01'
         
-        # Create scriptSig
         script_sig = var_int(len(signature)) + signature
         script_sig += var_int(len(pubkey)) + pubkey
         
-        # Add signed input
         signed_tx += bytes.fromhex(utxo['txid'])[::-1]
         signed_tx += struct.pack('<I', utxo['vout'])
         signed_tx += var_int(len(script_sig)) + script_sig
         signed_tx += struct.pack('<I', 0xffffffff)
     
-    # Add outputs and locktime
-    signed_tx += var_int(2 if change > 546 else 1)
+    signed_tx += var_int(output_count)
     signed_tx += struct.pack('<Q', amount)
     signed_tx += var_int(len(script_pubkey)) + script_pubkey
     
@@ -347,7 +409,7 @@ def create_raw_transaction(utxos: List[Dict], privkey: bytes, recipient: str,
     return tx_hex, txid
 
 def broadcast_transaction(tx_hex: str) -> Optional[str]:
-    """Broadcast transaction via mempool.space API"""
+    """Broadcast transaction via mempool.space Mainnet API without retries"""
     url = "https://mempool.space/api/tx"
     
     try:
@@ -355,37 +417,102 @@ def broadcast_transaction(tx_hex: str) -> Optional[str]:
         if response.status_code == 200:
             return response.text.strip()
         else:
-            print(f"Broadcast error: {response.text}")
+            try:
+                error_message = response.text.strip()
+                print(f"Mainnet Tx Broadcasting Error (Status {response.status_code}): {error_message}")
+            except:
+                print(f"Mainnet Tx Broadcasting Error (Status {response.status_code}): Unable to parse error message")
             return None
     except Exception as e:
-        print(f"Broadcast exception: {e}")
+        print(f"Request Exception: {str(e)}")
         return None
 
-def check_transaction_status(txid: str) -> Dict:
-    """Check transaction status in mempool"""
+def check_transaction_status(txid: str) -> Tuple[Dict, Optional[int], int, bool]:
+    """Check transaction status in mempool, return status dict, HTTP status code, confirmations, and dropped flag"""
     url = f"https://mempool.space/api/tx/{txid}"
+    tip_url = "https://mempool.space/api/blocks/tip/height"
+    recent_blocks_url = "https://mempool.space/api/blocks/recent"
     
-    try:
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            return response.json()
-        return {}
-    except:
-        return {}
+    max_retries = 5
+    retry_delay = 2
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url, timeout=10)
+            status_code = response.status_code
+            
+            if status_code == 200:
+                status = response.json()
+                
+                if not status.get('status', {}).get('confirmed', False):
+                    return status, status_code, 0, False
+                
+                tx_block_height = status.get('status', {}).get('block_height', 0)
+                if tx_block_height == 0:
+                    return status, status_code, 0, False
+                
+                tip_response = requests.get(tip_url, timeout=10)
+                if tip_response.status_code != 200:
+                    return status, status_code, 0, False
+                
+                current_height = int(tip_response.text.strip())
+                confirmations = current_height - tx_block_height + 1 if current_height >= tx_block_height else 0
+                return status, status_code, max(0, confirmations), False
+            
+            elif status_code == 404:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                
+                try:
+                    recent_blocks_response = requests.get(recent_blocks_url, timeout=10)
+                    if recent_blocks_response.status_code == 200:
+                        recent_blocks = recent_blocks_response.json()
+                        for block in recent_blocks[:5]:
+                            block_txs_url = f"https://mempool.space/api/block/{block['id']}/txids"
+                            block_txs_response = requests.get(block_txs_url, timeout=10)
+                            if block_txs_response.status_code == 200 and txid in block_txs_response.json():
+                                status_response = requests.get(url, timeout=10)
+                                if status_response.status_code == 200:
+                                    status = status_response.json()
+                                    tx_block_height = status.get('status', {}).get('block_height', 0)
+                                    tip_response = requests.get(tip_url, timeout=10)
+                                    if tip_response.status_code == 200:
+                                        current_height = int(tip_response.text.strip())
+                                        confirmations = current_height - tx_block_height + 1 if current_height >= tx_block_height else 0
+                                        return status, status_response.status_code, max(0, confirmations), False
+                                return {}, status_code, 0, True
+                        return {}, status_code, 0, True
+                    else:
+                        return {}, status_code, 0, True
+                except Exception:
+                    return {}, status_code, 0, True
+            
+            else:
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    continue
+                return {}, status_code, 0, False
+        
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                continue
+            return {}, None, 0, False
+    
+    return {}, None, 0, False
 
 def main():
-    print("=== Bitcoin P2PKH Address Transaction ===")
+    print("=== Bitcoin P2WPKH Recipient Transaction ===")
     print("Network: Mainnet")
     print()
     
-    # Get private key (256-bit lowercase hex without 0x)
     privkey_hex = input("Enter private key (256-bit lowercase hex, without 0x prefix): ").strip().lower()
     
     try:
         if len(privkey_hex) != 64:
             print("Error: Private key must be exactly 64 hex characters (256 bits)")
             return
-        
         privkey = bytes.fromhex(privkey_hex)
         if len(privkey) != 32:
             print("Error: Private key must be 32 bytes (256 bits)")
@@ -394,12 +521,10 @@ def main():
         print("Error: Invalid hexadecimal format - use only characters 0-9 and a-f")
         return
     
-    # Derive address
     pubkey = privkey_to_pubkey(privkey)
     address = pubkey_to_p2pkh_address(pubkey)
     print(f"\nYour P2PKH address: {address}")
     
-    # Prompt user for initial UTXO source
     print("\nChoose UTXO source:")
     print("1. Fetch from mempool.space API")
     print("2. Load from utxos.json file")
@@ -410,9 +535,15 @@ def main():
         print("\nFetching UTXOs from mempool.space API...")
         utxos = fetch_utxos(address)
         if utxos:
-            # Save fetched UTXOs to file
-            with open('utxos.json', 'w') as f:
-                json.dump(utxos, f, indent=2)
+            try:
+                with open('utxos.json', 'w') as f:
+                    json.dump(utxos, f, indent=2)
+                print("utxos.json updated with fetched UTXOs")
+            except Exception as e:
+                print(f"Error updating utxos.json: {e}")
+        else:
+            print("No UTXOs found via API")
+            return
     elif choice == '2':
         if os.path.exists('utxos.json'):
             print("\nLoading UTXOs from utxos.json...")
@@ -437,152 +568,133 @@ def main():
     print(f"Found {len(utxos)} UTXOs")
     print(f"Total balance: {satoshi_to_btc(total_balance):.8f} BTC")
     
-    # Get recipient
-    recipient = input("\nEnter Recipient P2PKH Address: ").strip()
+    recipient = input("\nEnter Recipient P2WPKH Address: ").strip()
+    if not is_valid_p2wpkh_address(recipient):
+        print(f"Error: Recipient address must be a valid Mainnet P2WPKH address starting with 'bc1q', got: {recipient}")
+        return
     
-    # Get amount in BTC
     try:
         amount_btc = float(input("Enter amount to send (BTC): "))
         amount_satoshi = btc_to_satoshi(amount_btc)
-    except ValueError:
-        print("Error: Invalid BTC amount")
-        return
-
-    # Get fee in BTC
-    try:
         fee_btc = float(input("Enter transaction fee (BTC): "))
         fee_satoshi = btc_to_satoshi(fee_btc)
     except ValueError:
-        print("Error: Invalid fee amount")
+        print("Error: Invalid amount or fee")
         return
-
-    # Subtract fee from amount
-    net_amount_satoshi = amount_satoshi - fee_satoshi
-    if net_amount_satoshi <= 546:  # Check against dust limit
-        print(f"Error: Net amount after fee ({satoshi_to_btc(net_amount_satoshi):.8f} BTC) is too low (must be above dust limit of 0.00000546 BTC)")
-        return
-
-    # Check if sufficient funds are available
-    if total_balance < net_amount_satoshi:
+    
+    # Handle dust limit internally
+    if amount_satoshi < 546 or total_balance < amount_satoshi + fee_satoshi:
+        amount_satoshi = total_balance - fee_satoshi
+    
+    if amount_satoshi <= 0:
         print(f"Error: Insufficient funds")
         print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
-        print(f"Required: {satoshi_to_btc(net_amount_satoshi):.8f} BTC (Net Amount after {satoshi_to_btc(fee_satoshi):.8f} BTC fee)")
+        print(f"Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
         return
-
-    print(f"\nCreating transaction...")
-    print(f"Net amount to send (after fee): {satoshi_to_btc(net_amount_satoshi):.8f} BTC")
+    
+    print(f"\nCreating Tx...")
+    print(f"Amount to send: {satoshi_to_btc(amount_satoshi):.8f} BTC")
     print(f"Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
     
     try:
-        tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, net_amount_satoshi, fee_satoshi)
-        print(f"Transaction ID: {txid}")
+        tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, amount_satoshi, fee_satoshi)
+        print(f"TXID: {txid}")
         
-        # Broadcast initial transaction
-        print("\nBroadcasting transaction...")
+        print("\nBroadcasting Tx...")
         result = broadcast_transaction(tx_hex)
         
         if result:
-            print(f"Transaction broadcast successfully!")
+            print(f"Tx Broadcasted Successfully!")
             current_txid = txid
             current_fee_satoshi = fee_satoshi
             
-            # Monitor for confirmation or replacement
-            print("\nMonitoring transaction status...")
-            print("Checking every 5 seconds for replacements. Waiting for 1 confirmation only.")
-            print("Press Ctrl+C to exit.")
+            print("\nMonitoring Tx Status...")
+            print("Checking every 5 seconds.")
             
             while True:
                 try:
-                    time.sleep(5)  # Check every 5 seconds
+                    time.sleep(5)
+                    status, status_code, confirmations, is_dropped = check_transaction_status(current_txid)
                     
-                    # Check transaction status
-                    status = check_transaction_status(current_txid)
+                    if confirmations >= 1:
+                        print(f"\nTransaction Confirmed!")
+                        print(f"Transaction ID: {current_txid}")
+                        print(f"Confirmations: {confirmations}")
+                        break
                     
-                    if status.get('status', {}).get('confirmed', False):
-                        confirmations = status.get('status', {}).get('block_height', 0)
-                        if confirmations > 0:  # At least 1 confirmation
-                            print(f"\nTransaction Confirmed!")
-                            print(f"Transaction ID: {current_txid}")
-                            print(f"Confirmations: 1+")
-                            break
-                    
-                    elif not status:
-                        # Transaction might have been replaced or dropped
+                    elif is_dropped:
                         print(f"\n⚠️TRANSACTION REPLACED!")
-                         
-                        # Directly prompt for new fee
-                        try:
-                            new_fee_btc = float(input("Enter new higher transaction fee (BTC): "))
-                            new_fee_satoshi = btc_to_satoshi(new_fee_btc)
-                            if new_fee_satoshi <= current_fee_satoshi:
-                                print("Error: New fee must be higher than previous fee")
-                                continue
-                            
-                            # Calculate new net amount
-                            new_net_amount_satoshi = amount_satoshi - new_fee_satoshi
-                            if new_net_amount_satoshi <= 546:
-                                print(f"Error: Net amount after new fee ({satoshi_to_btc(new_net_amount_satoshi):.8f} BTC) is too low (must be above dust limit of 0.00000546 BTC)")
-                                continue
-                            
-                            # Load UTXOs from utxos.json for replacement transaction
-                            if os.path.exists('utxos.json'):
-                                print("\nLoading UTXOs from utxos.json...")
-                                try:
-                                    with open('utxos.json', 'r') as f:
-                                        utxos = json.load(f)
-                                except Exception as e:
-                                    print(f"Error loading UTXOs from file: {e}")
+                        while True:
+                            try:
+                                new_fee_btc = input("Enter New Higher Tx Fee (BTC): ").strip()
+                                if not new_fee_btc:
+                                    print("Error: A New Tx Higher Fee is Required To Replace The Transaction")
                                     continue
-                            else:
-                                print("Error: utxos.json file not found")
-                                continue
-                            
-                            if utxos:
-                                total_balance = sum(u['value'] for u in utxos)
-                                if total_balance < new_net_amount_satoshi:
-                                    print(f"Error: Insufficient funds for replacement transaction")
-                                    print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
-                                    print(f"Required: {satoshi_to_btc(new_net_amount_satoshi):.8f} BTC")
+                                
+                                new_fee_btc = float(new_fee_btc)
+                                new_fee_satoshi = btc_to_satoshi(new_fee_btc)
+                                if new_fee_satoshi <= current_fee_satoshi:
+                                    print(f"Error: New Fee ({satoshi_to_btc(new_fee_satoshi):.8f} BTC) Must Be Higher Than Previous Fee ({satoshi_to_btc(current_fee_satoshi):.8f} BTC)")
                                     continue
+                                
+                                # Load UTXOs from utxos.json for replacement transaction
+                                if os.path.exists('utxos.json'):
+                                    print("\nLoading UTXOs from utxos.json...")
+                                    try:
+                                        with open('utxos.json', 'r') as f:
+                                            utxos = json.load(f)
+                                    except Exception as e:
+                                        print(f"Error loading UTXOs from file: {e}")
+                                        continue
+                                else:
+                                    print("Error: utxos.json file not found")
+                                    continue
+                                
+                                if utxos:
+                                    total_balance = sum(u['value'] for u in utxos)
+                                    new_amount_satoshi = total_balance - new_fee_satoshi
+                                    if total_balance < new_amount_satoshi:
+                                        print(f"Error: Insufficient funds for replacement transaction")
+                                        print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
+                                        print(f"Required: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
+                                        continue
                                 
                                 print("Creating replacement transaction...")
-                                tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, new_net_amount_satoshi, new_fee_satoshi)
+                                if not is_valid_p2wpkh_address(recipient):
+                                    print(f"Error: Recipient address must be a valid Mainnet P2WPKH address starting with 'bc1q', got: {recipient}")
+                                    continue
                                 
-                                print(f"New Transaction ID: {txid}")
+                                tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, new_amount_satoshi, new_fee_satoshi)
                                 
-                                # Broadcast replacement
+                                print(f"New TXID: {txid}")
+                                
                                 result = broadcast_transaction(tx_hex)
                                 
                                 if result:
-                                    print("Replacement transaction broadcast successfully!")
-                                    print(f"Net amount to send (after fee): {satoshi_to_btc(new_net_amount_satoshi):.8f} BTC")
+                                    print("Replacement Transaction Broadcast Successfully!")
+                                    print(f"Amount to send: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
                                     print(f"New fee: {satoshi_to_btc(new_fee_satoshi):.8f} BTC")
                                     print("Continuing to monitor for confirmation...")
                                     current_txid = txid
                                     current_fee_satoshi = new_fee_satoshi
+                                    break
                                 else:
                                     print("Failed to broadcast replacement transaction")
-                                    break
-                            else:
-                                print("No UTXOs available for replacement")
-                                break
-                        except ValueError:
-                            print("Error: Invalid fee amount")
-                            continue
-                    
-                    else:
-                        # Transaction is still in mempool
-                        print(".", end="", flush=True)
+                                    continue
+                            except ValueError:
+                                print("Error: Invalid fee amount")
+                                continue
+                        continue
                 
                 except KeyboardInterrupt:
                     print(f"\n\nMonitoring Stopped.")
                     break
                 except Exception as e:
                     print(f"\nError checking transaction status: {e}")
-                    time.sleep(5)  # Continue checking after error
+                    time.sleep(5)
         
         else:
-            print("Failed to broadcast transaction")
+            print("Failed To Broadcast Tx")
     
     except Exception as e:
         print(f"Error creating transaction: {e}")
