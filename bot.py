@@ -503,61 +503,61 @@ def check_transaction_status(txid: str) -> Tuple[Dict, Optional[int], int, bool]
     return {}, None, 0, False
 
 def main():
-    print("=== Bitcoin P2WPKH Recipient Transaction ===")
+    print("=== Bitcoin P2WPKH Recipient Transaction Attacker ===")
     print("Network: Mainnet")
     print()
     
-    privkey_hex = input("Enter private key (256-bit lowercase hex, without 0x prefix): ").strip().lower()
+    privkey_hex = input("Enter Private Key: ").strip().lower()
     
     try:
         if len(privkey_hex) != 64:
-            print("Error: Private key must be exactly 64 hex characters (256 bits)")
+            print("Error: Private Key Must Be Exactly 64 Hex Characters (256 bits)")
             return
         privkey = bytes.fromhex(privkey_hex)
         if len(privkey) != 32:
-            print("Error: Private key must be 32 bytes (256 bits)")
+            print("Error: Private Key Must Be 32 Bytes (256 bits)")
             return
     except ValueError:
-        print("Error: Invalid hexadecimal format - use only characters 0-9 and a-f")
+        print("Error: Invalid Hexadecimal Format - Use Only Characters 0-9 And a-f")
         return
     
     pubkey = privkey_to_pubkey(privkey)
     address = pubkey_to_p2pkh_address(pubkey)
-    print(f"\nYour P2PKH address: {address}")
+    print(f"\nYour P2PKH Address: {address}")
     
     print("\nChoose UTXO source:")
-    print("1. Fetch from mempool.space API")
+    print("1. Fetch from Mempool")
     print("2. Load from utxos.json file")
     choice = input("Enter 1 or 2: ").strip()
     
     utxos = []
     if choice == '1':
-        print("\nFetching UTXOs from mempool.space API...")
+        print("\nFetching UTXOs From Mempool...")
         utxos = fetch_utxos(address)
         if utxos:
             try:
                 with open('utxos.json', 'w') as f:
                     json.dump(utxos, f, indent=2)
-                print("utxos.json updated with fetched UTXOs")
+                print("utxos.json Updated With Fetched UTXOs")
             except Exception as e:
-                print(f"Error updating utxos.json: {e}")
+                print(f"Error Updating utxos.json: {e}")
         else:
-            print("No UTXOs found via API")
+            print("No UTXOs Found Via API")
             return
     elif choice == '2':
         if os.path.exists('utxos.json'):
-            print("\nLoading UTXOs from utxos.json...")
+            print("\nLoading UTXOs From utxos.json...")
             try:
                 with open('utxos.json', 'r') as f:
                     utxos = json.load(f)
             except Exception as e:
-                print(f"Error loading UTXOs from file: {e}")
+                print(f"Error Loading UTXOs From File: {e}")
                 return
         else:
-            print("Error: utxos.json file not found")
+            print("Error: utxos.json File Not Found")
             return
     else:
-        print("Error: Invalid choice. Please enter 1 or 2")
+        print("Error: Invalid Choice. Please Enter 1 or 2")
         return
     
     if not utxos:
@@ -570,16 +570,16 @@ def main():
     
     recipient = input("\nEnter Recipient P2WPKH Address: ").strip()
     if not is_valid_p2wpkh_address(recipient):
-        print(f"Error: Recipient address must be a valid Mainnet P2WPKH address starting with 'bc1q', got: {recipient}")
+        print(f"Error: Recipient Address Must Be A Valid Mainnet P2WPKH Address Starting With 'bc1q', got: {recipient}")
         return
     
     try:
-        amount_btc = float(input("Enter amount to send (BTC): "))
+        amount_btc = float(input("Enter Amount To Send (BTC): "))
         amount_satoshi = btc_to_satoshi(amount_btc)
-        fee_btc = float(input("Enter transaction fee (BTC): "))
+        fee_btc = float(input("Enter Transaction Fee (BTC): "))
         fee_satoshi = btc_to_satoshi(fee_btc)
     except ValueError:
-        print("Error: Invalid amount or fee")
+        print("Error: Invalid Amount Or Fee")
         return
     
     # Handle dust limit internally
@@ -587,13 +587,13 @@ def main():
         amount_satoshi = total_balance - fee_satoshi
     
     if amount_satoshi <= 0:
-        print(f"Error: Insufficient funds")
-        print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
+        print(f"Error: Insufficient Funds")
+        print(f"Available Balance: {satoshi_to_btc(total_balance):.8f} BTC")
         print(f"Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
         return
     
     print(f"\nCreating Tx...")
-    print(f"Amount to send: {satoshi_to_btc(amount_satoshi):.8f} BTC")
+    print(f"Amount To Send: {satoshi_to_btc(amount_satoshi):.8f} BTC")
     print(f"Fee: {satoshi_to_btc(fee_satoshi):.8f} BTC")
     
     try:
@@ -609,21 +609,21 @@ def main():
             current_fee_satoshi = fee_satoshi
             
             print("\nMonitoring Tx Status...")
-            print("Checking every 5 seconds.")
-            
+             
             while True:
                 try:
                     time.sleep(5)
                     status, status_code, confirmations, is_dropped = check_transaction_status(current_txid)
                     
                     if confirmations >= 1:
-                        print(f"\nTransaction Confirmed!")
-                        print(f"Transaction ID: {current_txid}")
+                        print(f"\nTx Confirmed!")
+                        print(f"Block Height: {status.get('status', {}).get('block_height', 'Unknown')}")
                         print(f"Confirmations: {confirmations}")
+                        print(f"TXID: {current_txid}")v 
                         break
                     
                     elif is_dropped:
-                        print(f"\n⚠️TRANSACTION REPLACED!")
+                        print(f"\n⚠️TX REPLACED!")
                         while True:
                             try:
                                 new_fee_btc = input("Enter New Higher Tx Fee (BTC): ").strip()
@@ -639,29 +639,27 @@ def main():
                                 
                                 # Load UTXOs from utxos.json for replacement transaction
                                 if os.path.exists('utxos.json'):
-                                    print("\nLoading UTXOs from utxos.json...")
+                                    print("\nLoading UTXOs From utxos.json...")
                                     try:
                                         with open('utxos.json', 'r') as f:
                                             utxos = json.load(f)
                                     except Exception as e:
-                                        print(f"Error loading UTXOs from file: {e}")
+                                        print(f"Error Loading UTXOs From File: {e}")
                                         continue
                                 else:
-                                    print("Error: utxos.json file not found")
+                                    print("Error: utxos.json File Not Found")
                                     continue
                                 
                                 if utxos:
                                     total_balance = sum(u['value'] for u in utxos)
                                     if total_balance < amount_satoshi + new_fee_satoshi:
-                                        print(f"Error: Insufficient funds for replacement transaction")
+                                        print(f"Error: Insufficient Funds For Replacement Transaction")
                                         print(f"Available balance: {satoshi_to_btc(total_balance):.8f} BTC")
                                         print(f"Required: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
                                         continue
                                 
-                                print("Creating replacement transaction...")
-                                if not is_valid_p2wpkh_address(recipient):
-                                    print(f"Error: Recipient address must be a valid Mainnet P2WPKH address starting with 'bc1q', got: {recipient}")
-                                    continue
+                                print("Creating Replacement Tx...")
+                                continue
                                 
                                 tx_hex, txid = create_raw_transaction(utxos, privkey, recipient, new_amount_satoshi, new_fee_satoshi)
                                 
@@ -671,17 +669,17 @@ def main():
                                 
                                 if result:
                                     print("Replacement Transaction Broadcast Successfully!")
-                                    print(f"Amount to send: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
-                                    print(f"New fee: {satoshi_to_btc(new_fee_satoshi):.8f} BTC")
-                                    print("Continuing to monitor for confirmation...")
+                                    print(f"Amount To Send: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
+                                    print(f"New Fee: {satoshi_to_btc(new_fee_satoshi):.8f} BTC")
+                                    print("Continuing To Monitor For Confirmation...")
                                     current_txid = txid
                                     current_fee_satoshi = new_fee_satoshi
                                     break
                                 else:
-                                    print("Failed to broadcast replacement transaction")
+                                    print("Failed TX Broadcast Replacement Tx")
                                     continue
                             except ValueError:
-                                print("Error: Invalid fee amount")
+                                print("Error: Invalid Fee Amount")
                                 continue
                         continue
                 
@@ -689,14 +687,14 @@ def main():
                     print(f"\n\nMonitoring Stopped.")
                     break
                 except Exception as e:
-                    print(f"\nError checking transaction status: {e}")
+                    print(f"\nError Checking Tx Status: {e}")
                     time.sleep(5)
         
         else:
             print("Failed To Broadcast Tx")
     
     except Exception as e:
-        print(f"Error creating transaction: {e}")
+        print(f"Error Creating Tx: {e}")
 
 if __name__ == "__main__":
     main()
