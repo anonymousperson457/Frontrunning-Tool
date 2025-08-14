@@ -11,7 +11,6 @@ def fetch_utxos(address: str) -> List[Dict]:
         response.raise_for_status()
         utxos = response.json()
         
-        # Save UTXOs to JSON file
         with open('utxos.json', 'w') as f:
             json.dump(utxos, f, indent=2)
         
