@@ -46,14 +46,6 @@ def main():
     print(f"\nFound {len(utxos)} UTXOs")
     print(f"Total balance: {total_balance / 100_000_000:.8f} BTC")
     print(f"UTXOs saved to 'utxos.json'")
-    
-    # Print UTXO details
-    print("\nUTXO Details:")
-    for utxo in utxos:
-        print(f"- TXID: {utxo['txid']}")
-        print(f"  Vout: {utxo['vout']}")
-        print(f"  Value: {utxo['value'] / 100_000_000:.8f} BTC")
-        print(f"  Status: {'Confirmed' if utxo['status']['confirmed'] else 'Unconfirmed'}")
 
 if __name__ == "__main__":
     main()
