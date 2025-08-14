@@ -657,7 +657,7 @@ def main():
                                 result = broadcast_transaction(tx_hex)
                                 
                                 if result:
-                                    print("Replacement Transaction Broadcast Successfully!")
+                                    print("Replacement Tx Broadcasted Successfully!")
                                     print(f"Amount To Send: {satoshi_to_btc(new_amount_satoshi):.8f} BTC")
                                     print(f"New Fee: {satoshi_to_btc(new_fee_satoshi):.8f} BTC")
                                     print("Continuing To Monitor For Confirmation...")
@@ -665,7 +665,7 @@ def main():
                                     current_fee_satoshi = new_fee_satoshi
                                     break
                                 else:
-                                    print("Failed TX Broadcast Replacement Tx")
+                                    print("Failed Tx Broadcast Replacement Tx")
                                     continue
                             except ValueError:
                                 print("Error: Invalid Fee Amount")
