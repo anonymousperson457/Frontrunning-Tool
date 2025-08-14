@@ -429,14 +429,13 @@ def broadcast_transaction(tx_hex: str) -> Optional[str]:
 
 def check_transaction_status(txid: str) -> Tuple[Dict, Optional[int], int, bool]:
     """Check transaction status in mempool, return status dict, HTTP status code, confirmations, and dropped flag"""
-    url = f"https://mempool.space/api/tx/{txid}"
-    tip_url = "https://mempool.space/api/blocks/tip/height"
-    recent_blocks_url = "https://mempool.space/api/blocks/recent"
+    url = f"https://mempool.space/testnet4/api/tx/{txid}"
+    tip_url = "https://mempool.space/testnet4/api/blocks/tip/height"
+    recent_blocks_url = "https://mempool.space/testnet4/api/blocks/recent"
     
-    max_retries = 5
-    retry_delay = 2
+    retry_delay = 3
     
-    for attempt in range(max_retries):
+    while True:
         try:
             response = requests.get(url, timeout=10)
             status_code = response.status_code
@@ -460,16 +459,12 @@ def check_transaction_status(txid: str) -> Tuple[Dict, Optional[int], int, bool]
                 return status, status_code, max(0, confirmations), False
             
             elif status_code == 404:
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                
                 try:
                     recent_blocks_response = requests.get(recent_blocks_url, timeout=10)
                     if recent_blocks_response.status_code == 200:
                         recent_blocks = recent_blocks_response.json()
                         for block in recent_blocks[:5]:
-                            block_txs_url = f"https://mempool.space/api/block/{block['id']}/txids"
+                            block_txs_url = f"https://mempool.space/testnet4/api/block/{block['id']}/txids"
                             block_txs_response = requests.get(block_txs_url, timeout=10)
                             if block_txs_response.status_code == 200 and txid in block_txs_response.json():
                                 status_response = requests.get(url, timeout=10)
@@ -487,20 +482,12 @@ def check_transaction_status(txid: str) -> Tuple[Dict, Optional[int], int, bool]
                         return {}, status_code, 0, True
                 except Exception:
                     return {}, status_code, 0, True
-            
             else:
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                return {}, status_code, 0, False
-        
-        except Exception:
-            if attempt < max_retries - 1:
                 time.sleep(retry_delay)
                 continue
-            return {}, None, 0, False
-    
-    return {}, None, 0, False
+        except Exception:
+            time.sleep(retry_delay)
+            continue
 
 def main():
     print("=== Bitcoin P2WPKH Recipient Transaction Attacker ===")
