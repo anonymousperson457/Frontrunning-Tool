@@ -513,9 +513,9 @@ def main():
     print(f"\nYour P2PKH Address: {address}")
     
     print("\nChoose UTXO source:")
-    print("1. Fetch from Mempool")
-    print("2. Load from utxos.json file")
-    choice = input("Enter 1 or 2: ").strip()
+    print("1. Fetch From Mempool")
+    print("2. Load From utxos.json File")
+    choice = input("Enter 1 Or 2: ").strip()
     
     utxos = []
     if choice == '1':
@@ -557,20 +557,18 @@ def main():
     
     recipient = input("\nEnter Recipient P2WPKH Address: ").strip()
     if not is_valid_p2wpkh_address(recipient):
-        print(f"Error: Recipient Address Must Be A Valid Mainnet P2WPKH Address Starting With 'bc1q', got: {recipient}")
+        print(f"Error: Recipient Address Must Be A Valid Mainnet P2WPKH Address Starting With 'bc1q', Got: {recipient}")
         return
     
     try:
         amount_btc = float(input("Enter Amount To Send (BTC): "))
         amount_satoshi = btc_to_satoshi(amount_btc)
-        fee_btc = float(input("Enter Transaction Fee (BTC): "))
+        fee_btc = float(input("Enter Tx Fee (BTC): "))
         fee_satoshi = btc_to_satoshi(fee_btc)
     except ValueError:
         print("Error: Invalid Amount Or Fee")
         return
-    
-    
-     # Handle dust limit internally
+         
     if amount_satoshi < 546 or total_balance < amount_satoshi + fee_satoshi:
         amount_satoshi = total_balance - fee_satoshi
     
